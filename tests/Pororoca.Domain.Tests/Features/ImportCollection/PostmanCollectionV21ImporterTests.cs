@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Microsoft.VisualBasic.CompilerServices;
 using Pororoca.Domain.Features.Common;
 using Pororoca.Domain.Features.Entities.Pororoca;
 using Pororoca.Domain.Features.Entities.Pororoca.Http;
@@ -11,6 +13,141 @@ public static class PostmanCollectionV21ImporterTests
 {
     private static readonly Guid testGuid = Guid.NewGuid();
     private const string testName = "MyCollection";
+
+
+    #region ESS TESTS
+
+    [Fact]
+    public static void ShouldNotConvertInvalidJsonPostmanCollection()
+    {
+        const string json = "id: \"8b34e2c4-3384-4ebd-996e-24c0e63ee256\"}";
+
+        Assert.False(TryImportPostmanCollection(json, out var col));
+        Assert.Null(col);
+    }
+
+    [Fact]
+    public static void ShouldNotConvertPostmanCollectionToPororocaCollectionCorrectly()
+    {
+        // Give unexpected value for postmanCollection.Info
+        var postmanCollection = CreateTestCollection();
+        postmanCollection.Info = null!;
+
+        Assert.False(TryConvertToPororocaCollection(postmanCollection, out var pororocaCollection));
+
+        Assert.Null(pororocaCollection);
+    }
+
+    [Theory]
+    [InlineData("application/json")]
+    [InlineData("application/javascript")]
+    [InlineData("text/html")]
+    [InlineData("text/xml")]
+    [InlineData("text/plain")]
+    public static void ShouldCorrectlySetAllAvailableRawContentContentTypes(
+        string contentTypeFromHeader)
+    {
+        // GIVEN
+        PostmanRequestBody? postmanBody = new() { Mode = PostmanRequestBodyMode.Raw, Raw = "[]" };
+
+        var body = ConvertToPororocaHttpRequestBody(postmanBody, contentTypeFromHeader);
+
+        Assert.NotNull(body);
+        Assert.Equal(contentTypeFromHeader, body.ContentType);
+    }
+
+    [Theory]
+    [InlineData("json", "application/json")]
+    [InlineData("javascript", "application/javascript")]
+    [InlineData("html", "text/html")]
+    [InlineData("xml", "text/xml")]
+    [InlineData("text", "text/plain")]
+    public static void ShouldCorrectlyFindContentTypeForPostmanRawBodyLanguage(
+        string postmanReqRawBodyLanguage, string expected)
+    {
+        // GIVEN
+        var options = new PostmanRequestBodyRawOptions { Language = postmanReqRawBodyLanguage };
+        PostmanRequestBody? postmanBody = new()
+        {
+            Mode = PostmanRequestBodyMode.Raw,
+            Raw = "[]",
+            Options = new PostmanRequestBodyOptions { Raw = options }
+        };
+
+        var body = ConvertToPororocaHttpRequestBody(postmanBody, null);
+
+        Assert.NotNull(body);
+        Assert.Equal(expected, body.ContentType);
+    }
+
+    [Fact]
+    public static void ShouldCorrectlyConvertToPororocaHttpFormDataParam()
+    {
+        PostmanRequestBodyFormDataParam p1f = new()
+        {
+            Key = "Key1File",
+            Src = JsonDocument.Parse(JsonSerializer.Serialize(new string[] { })).RootElement,
+            ContentType = "text/plain",
+            Type = PostmanRequestBodyFormDataParamType.File
+        };
+        PostmanRequestBodyFormDataParam p2f = new()
+        {
+            Key = "Key2File",
+            Src = JsonDocument.Parse(JsonSerializer.Serialize("{}")).RootElement,
+            ContentType = "image/jpeg",
+            Type = PostmanRequestBodyFormDataParamType.File,
+            Disabled = true
+        };
+        PostmanRequestBody postmanBody = new()
+        {
+            Mode = PostmanRequestBodyMode.Formdata, Formdata = new[] { p1f, p2f }
+        };
+
+        // WHEN
+        var reqBody = ConvertToPororocaHttpRequestBody(postmanBody, null);
+
+        Assert.NotNull(reqBody);
+        Assert.Equal(PororocaHttpRequestBodyMode.FormData, reqBody!.Mode);
+        Assert.Equal(2, reqBody.FormDataValues!.Count);
+    }
+
+
+    public static IEnumerable<object[]> ToSerialize =>
+        new List<object[]>
+        {
+            new object[] { new PostmanRequestUrl()},
+            new object[] { "" },
+            new object[] { "Invalid text" },
+        };
+
+    [Theory, MemberData(nameof(ToSerialize))]
+    public static void ShouldConvertPostmanReqWithJsonCorrectly(object toSerialize)
+    {
+        // GIVEN
+        string reqName = "MyRequest";
+        var postmanRequest = CreateTestRequestWithAuth();
+        if (toSerialize is string && toSerialize.Equals("Invalid text"))
+        {
+            postmanRequest.Url = toSerialize;
+        }
+        else
+        {
+            postmanRequest.Url = JsonDocument.Parse(JsonSerializer.Serialize(toSerialize)).RootElement;
+        }
+
+        // WHEN
+        var req = ConvertToPororocaHttpRequest(reqName, postmanRequest);
+
+        // THEN
+        Assert.NotNull(req);
+        Assert.Equal(reqName, req.Name);
+        Assert.Equal(1.1m, req.HttpVersion);
+        Assert.Equal("POST", req.HttpMethod);
+        Assert.Equal("", req.Url);
+
+    }
+
+    #endregion
 
     #region INVALID COLLECTION
 
@@ -70,15 +207,12 @@ public static class PostmanCollectionV21ImporterTests
     }
 
     [Fact]
-    public static void Should_convert_postman_req_raw_json_body_to_pororoca_req_body_correctly_taking_content_type_from_header()
+    public static void
+        Should_convert_postman_req_raw_json_body_to_pororoca_req_body_correctly_taking_content_type_from_header()
     {
         // GIVEN
         string contentTypeFromHeader = "application/json; charset=utf-8";
-        PostmanRequestBody? postmanBody = new()
-        {
-            Mode = PostmanRequestBodyMode.Raw,
-            Raw = "[]"
-        };
+        PostmanRequestBody? postmanBody = new() { Mode = PostmanRequestBodyMode.Raw, Raw = "[]" };
 
         // WHEN
         var reqBody = ConvertToPororocaHttpRequestBody(postmanBody, contentTypeFromHeader);
@@ -161,8 +295,7 @@ public static class PostmanCollectionV21ImporterTests
         PostmanVariable p2 = new() { Disabled = true, Key = "Key2", Value = "Value2" };
         PostmanRequestBody postmanBody = new()
         {
-            Mode = PostmanRequestBodyMode.Urlencoded,
-            Urlencoded = new[] { p1, p2 }
+            Mode = PostmanRequestBodyMode.Urlencoded, Urlencoded = new[] { p1, p2 }
         };
 
         // WHEN
@@ -191,8 +324,7 @@ public static class PostmanCollectionV21ImporterTests
         // GIVEN
         PostmanRequestBody postmanBody = new()
         {
-            Mode = PostmanRequestBodyMode.File,
-            File = new() { Src = @"/C:/MyFolder/image.png" }
+            Mode = PostmanRequestBodyMode.File, File = new() { Src = @"/C:/MyFolder/image.png" }
         };
 
         // WHEN
@@ -242,8 +374,7 @@ public static class PostmanCollectionV21ImporterTests
         };
         PostmanRequestBody postmanBody = new()
         {
-            Mode = PostmanRequestBodyMode.Formdata,
-            Formdata = new[] { p1t, p2t, p1f, p2f }
+            Mode = PostmanRequestBodyMode.Formdata, Formdata = new[] { p1t, p2t, p1f, p2f }
         };
 
         // WHEN
@@ -528,25 +659,30 @@ public static class PostmanCollectionV21ImporterTests
     private static PostmanCollectionV21 CreateTestCollection() =>
         new()
         {
-            Info = new()
-            {
-                Id = testGuid,
-                Name = testName,
-                Schema = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-            },
-            Variable = new PostmanVariable[]
-            {
-                new() { Key = "Key1", Value = "Value1" },
-                new() { Key = "Key2", Value = "Value2", Disabled = true }
-            },
-            Auth = new()
-            {
-                Type = PostmanAuthType.bearer,
-                Bearer = new PostmanVariable[]
+            Info =
+                new()
                 {
-                    new() { Key = "token", Value = "tkn", Type = "string" }
-                }
-            },
+                    Id = testGuid,
+                    Name = testName,
+                    Schema =
+                        "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+                },
+            Variable =
+                new PostmanVariable[]
+                {
+                    new() { Key = "Key1", Value = "Value1" },
+                    new() { Key = "Key2", Value = "Value2", Disabled = true }
+                },
+            Auth =
+                new()
+                {
+                    Type = PostmanAuthType.bearer,
+                    Bearer =
+                        new PostmanVariable[]
+                        {
+                            new() { Key = "token", Value = "tkn", Type = "string" }
+                        }
+                },
             Items = new PostmanCollectionItem[]
             {
                 new()
@@ -561,7 +697,10 @@ public static class PostmanCollectionV21ImporterTests
                             {
                                 Method = "GET",
                                 Header = Array.Empty<PostmanVariable>(),
-                                Url = new PostmanRequestUrl() { Raw = "http://www.abc.com.br" }
+                                Url = new PostmanRequestUrl()
+                                {
+                                    Raw = "http://www.abc.com.br"
+                                }
                             }
                         }
                     }
@@ -573,7 +712,10 @@ public static class PostmanCollectionV21ImporterTests
                     {
                         Method = "GET",
                         Header = Array.Empty<PostmanVariable>(),
-                        Url = new PostmanRequestUrl() { Raw = "http://www.def.com.br" }
+                        Url = new PostmanRequestUrl()
+                        {
+                            Raw = "http://www.def.com.br"
+                        }
                     }
                 }
             }
@@ -617,5 +759,4 @@ public static class PostmanCollectionV21ImporterTests
     }
 
     #endregion
-
 }
