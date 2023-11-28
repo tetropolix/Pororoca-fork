@@ -1,5 +1,6 @@
 using Pororoca.Domain.Features.Entities.Pororoca;
 using Pororoca.Domain.Features.Entities.Pororoca.Http;
+using Pororoca.Domain.Features.TranslateRequest;
 using Pororoca.Domain.Features.VariableResolution;
 using Xunit;
 using static Pororoca.Domain.Features.TranslateRequest.Http.PororocaHttpRequestTranslator;
@@ -10,6 +11,43 @@ public static class PororocaHttpRequestTranslatorTests
 {
     private static IEnumerable<PororocaVariable> GetEffectiveVariables(this PororocaCollection col) =>
         ((IPororocaVariableResolver)col).GetEffectiveVariables();
+
+    #region ESS TESTS
+
+    [Fact]
+    public static void TryTranslateRequestWithBadEffectiveVars()
+    {
+        // GIVEN
+        var varResolver = MockVariableResolver("myID", "3162");
+        PororocaHttpRequest req = new();
+        HttpRequestMessage? reqMsg;
+        string? errorCode;
+
+        bool result = TryTranslateRequest(varResolver.GetEffectiveVariables(), null, req,out reqMsg, out errorCode);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public static void SetTryTranslateRequestErrorCode()
+    {
+        // GIVEN
+        var varResolver = MockVariableResolver("myID", "3162");
+        PororocaHttpRequest req = new PororocaHttpRequest();
+        req.UpdateUrl("https://localhost:8000");
+        req.UpdateMethod(null!);
+        HttpRequestMessage? reqMsg;
+        string? errorCode;
+
+        bool result = TryTranslateRequest(varResolver.GetEffectiveVariables(), null, req ,out reqMsg, out errorCode);
+
+        Assert.False(result);
+        Assert.NotNull(errorCode);
+        Assert.Equal(TranslateRequestErrors.UnknownRequestTranslationError,errorCode);
+    }
+
+
+    #endregion
 
     #region MOCKERS
 
